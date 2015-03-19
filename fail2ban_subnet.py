@@ -1,5 +1,9 @@
 #!/usr/bin/env python
 
+
+#
+# General settings go here
+#
 whois_fullpath = "/usr/bin/whois"
 iptables_fullpath = "/usr/sbin/iptables"
 
@@ -10,7 +14,12 @@ email_subject = "Fail2Ban blocking Subnet"
 block_log = "/etc/fail2ban/block_subnet.log"
 mincount = 3
 
+ipchain_rule = "fail2ban_subnet"
 
+
+#
+# code goes below here
+#
 
 import os, sys, numpy, subprocess
 import datetime
@@ -38,6 +47,7 @@ class Fail2Ban_SubnetBlocker( ):
 
         self.blocked_subnets = []
         self.logfile = logfile
+        self.setup_ipchain_dictionary()
 
 
     def startup(self):
@@ -49,8 +59,18 @@ class Fail2Ban_SubnetBlocker( ):
         self.run_iptables("--delete-chain fail2ban_root_check")
         return (ret == 0)
 
+    def setup_ipchain_dictionary(self):
+        self.iptables_dict = {
+            "IPCHAIN": ipchain_rule,
+            }
+
     def run_iptables(self, cmd):
-        full_cmd = "%s %s" % (iptables_fullpath, cmd)
+
+        _cmd = cmd
+        for key in self.iptables_dict:
+            _cmd = _cmd.replace("<%s>"%key, self.iptables_dict[key])
+
+        full_cmd = "%s %s" % (iptables_fullpath, _cmd)
         ret =  os.system(full_cmd)
         print full_cmd, ret
         return ret
@@ -59,13 +79,13 @@ class Fail2Ban_SubnetBlocker( ):
 
         
         # Add the table to check for blocked subnets
-        ret = self.run_iptables("--check INPUT fail2ban_subnets")
-        if (ret not in (0, 512)):
-            # self.run_iptables("--delete INPUT fail2ban_subnets")
-            self.run_iptables("--new-chain fail2ban_subnets")
+        ret = self.run_iptables("-n --list <IPCHAIN>")
+        if (not ret == 0):
+            # self.run_iptables("--delete INPUT <IPCHAIN>")
+            self.run_iptables("--new-chain <IPCHAIN>")
 
             # Add an entry to use the new table
-            self.run_iptables("--insert INPUT -j fail2ban_subnets")
+            self.run_iptables("--insert INPUT -j <IPCHAIN>")
         
         pass
 
@@ -97,10 +117,10 @@ class Fail2Ban_SubnetBlocker( ):
             }
 
         # Try to delete the rule first
-        rule = "fail2ban_subnets -p tcp -s %s -j REJECT --reject-with tcp-reset" % (source)
+        rule = "<IPCHAIN> -p tcp -s %s -j REJECT --reject-with tcp-reset" % (source)
         self.delete_add_iptables_rule(rule)
 
-        rule = "fail2ban_subnets -p all -s %s -j DROP" % (source)
+        rule = "<IPCHAIN> -p all -s %s -j DROP" % (source)
         self.delete_add_iptables_rule(rule)
 
         self.blocked_subnets.append(subnet)
